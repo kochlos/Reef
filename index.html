@@ -1229,13 +1229,15 @@ dlBtn.addEventListener('click',async()=>{
 let ctxMenu=null;
 function showContextMenu(x,y,img){
   closeContextMenu();
-  const folders=[...new Set(allImages.map(i=>i.folder))].sort();
+  const folderSet = new Set(allImages.map(i=>i.folder));
+  if (allImages._customFolders) allImages._customFolders.forEach(f => folderSet.add(f));
+  const folders = [...folderSet].sort((a,b) => a==='unused'?1:b==='unused'?-1:a.localeCompare(b));
   const menu=document.createElement('div'); menu.className='ctx-menu'; ctxMenu=menu;
   const title=document.createElement('div'); title.className='ctx-menu-title'; title.textContent='ПЕРЕМЕСТИТЬ В'; menu.appendChild(title);
   folders.forEach(folder=>{
     if(folder===img.folder) return;
     const item=document.createElement('div'); item.className='ctx-item';
-    item.innerHTML=`<span class="ctx-icon">◫</span>${folder.split('/').pop()}`;
+    item.innerHTML=`<span class="ctx-icon">◫</span>${folder.split('/').pop()||folder}`;
     item.addEventListener('click',()=>{ moveToFolder(img.path,folder); closeContextMenu(); });
     menu.appendChild(item);
   });

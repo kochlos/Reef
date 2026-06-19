@@ -1229,9 +1229,9 @@ dlBtn.addEventListener('click',async()=>{
 let ctxMenu=null;
 function showContextMenu(x,y,img){
   closeContextMenu();
-  const folderSet = new Set(allImages.map(i=>i.folder));
-  if (allImages._customFolders) allImages._customFolders.forEach(f => folderSet.add(f));
-  const folders = [...folderSet].sort((a,b) => a==='unused'?1:b==='unused'?-1:a.localeCompare(b));
+  const folderSet=new Set(allImages.map(i=>i.folder));
+  if(allImages._customFolders) allImages._customFolders.forEach(f=>folderSet.add(f));
+  const folders=[...folderSet].sort((a,b)=>a==='unused'?1:b==='unused'?-1:a.localeCompare(b));
   const menu=document.createElement('div'); menu.className='ctx-menu'; ctxMenu=menu;
   const title=document.createElement('div'); title.className='ctx-menu-title'; title.textContent='ПЕРЕМЕСТИТЬ В'; menu.appendChild(title);
   folders.forEach(folder=>{
@@ -1282,11 +1282,14 @@ function openSideEditor(idx){
     for(let i=0;i<bs.length;i++) ba[i]=bs.charCodeAt(i);
     const syncBlob=new Blob([ba],{type:'image/png'});
     commitImg.imageData.mappedBlob=syncBlob; commitImg.blob=syncBlob;
-    // Also update mappedImg synchronously so re-opening shows edited version
+    // Save pixelData synchronously — this is what re-opening will use
+    commitImg.imageData.editedPixelData=commitPx;
+    commitImg.imageData.w=commitPx.width;
+    commitImg.imageData.h=commitPx.height;
+    // Update mappedImg async (for thumbnail/lightbox)
     const mi=new Image();
     mi.onload=()=>{
       commitImg.imageData.mappedImg=mi; commitImg.imageData.img=mi;
-      // Update thumb
       const th2=document.querySelector(`.thumb[data-path="${CSS.escape(commitImg.path)}"]`);
       if(th2){ const tc2=th2.querySelector('canvas'); if(tc2){
         const sc=Math.min(SCALE,(THUMB_MAX*SCALE)/Math.max(commitPx.width,commitPx.height,1));
@@ -1310,10 +1313,19 @@ function openSideEditor(idx){
   sideCanvasEl.width=src.w*sideScale; sideCanvasEl.height=src.h*sideScale;
   sideCtx=sideCanvasEl.getContext('2d'); sideCtx.imageSmoothingEnabled=false;
 
-  // Working copy — always from mappedImg/mappedBlob which reflects last commit
-  const tmp=document.createElement('canvas'); tmp.width=src.w; tmp.height=src.h;
-  const tc=tmp.getContext('2d'); tc.drawImage(src.mappedImg||src.img,0,0);
-  sidePixelData=tc.getImageData(0,0,src.w,src.h);
+  // Use editedPixelData if available (preserves crop and edits synchronously)
+  // Fall back to mappedImg/img for first open
+  if(src.editedPixelData){
+    sidePixelData=new ImageData(
+      new Uint8ClampedArray(src.editedPixelData.data),
+      src.editedPixelData.width,
+      src.editedPixelData.height
+    );
+  } else {
+    const tmp=document.createElement('canvas'); tmp.width=src.w; tmp.height=src.h;
+    const tc=tmp.getContext('2d'); tc.drawImage(src.mappedImg||src.img,0,0);
+    sidePixelData=tc.getImageData(0,0,src.w,src.h);
+  }
 
   sidePushHistory(); sideRedraw(); buildSidePalette();
   sideToolUndo.disabled=true;
@@ -1413,7 +1425,8 @@ function sideCommitSync(){
     commitImg.blob=newBlob;
     commitImg.imageData={img:mi,mappedImg:mi,mappedBlob:newBlob,
       w:commitPx.width,h:commitPx.height,
-      pixelData:commitPx,mapping:commitImg.imageData.mapping,opaqueCount:oc};
+      pixelData:commitPx,mapping:commitImg.imageData.mapping,opaqueCount:oc,
+      editedPixelData:commitPx};
     const th=document.querySelector(`.thumb[data-path="${CSS.escape(commitImg.path)}"]`);
     if(th){ const tc=th.querySelector('canvas'); if(tc){
       const sc=Math.min(SCALE,(THUMB_MAX*SCALE)/Math.max(commitPx.width,commitPx.height,1));

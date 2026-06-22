@@ -80,6 +80,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     white-space: nowrap;
   }
   .stat span { color: var(--text); }
+  .stat-size-badge { font-size:8px;font-weight:700;padding:1px 4px;letter-spacing:.04em;vertical-align:middle; }
+  .stat-size-S   { background:#1a2e1a;color:#83E04D;border:1px solid #2a4a2a; }
+  .stat-size-M   { background:#1a2a1e;color:#6EEEFF;border:1px solid #1a3a3a; }
+  .stat-size-L   { background:#1a1e2e;color:#5767F6;border:1px solid #1a2a4a; }
+  .stat-size-XL  { background:#1a1a2e;color:#f472b6;border:1px solid #2a1a4a; }
+  .stat-size-XXL { background:#1e1a2e;color:#a855f7;border:1px solid #3a1a4a; }
 
   .spacer { flex: 1; }
 
@@ -141,6 +147,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     letter-spacing: .06em;
     margin-right: 4px;
     white-space: nowrap;
+  }
+  .filter-archive-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: #444;
+    letter-spacing: .08em;
+    padding: 0 4px 0 8px;
+    border-left: 1px solid #2a2a2a;
+    margin-left: 4px;
+    white-space: nowrap;
+    user-select: none;
+    text-transform: uppercase;
   }
   .filter-btn {
     padding: 3px 10px;
@@ -346,10 +364,22 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     z-index: 2000;
     background: #1a1a1a;
     border: 1px solid #333;
-    min-width: 160px;
+    min-width: 180px;
     box-shadow: 0 8px 24px rgba(0,0,0,.6);
     padding: 4px 0;
+    display: flex;
+    flex-direction: column;
+    max-height: calc(10 * 33px + 40px);
   }
+  .ctx-menu-title {
+    flex-shrink: 0;
+  }
+  .ctx-menu-scroll {
+    overflow-y: auto;
+    flex: 1;
+  }
+  .ctx-menu-scroll::-webkit-scrollbar { width: 3px; }
+  .ctx-menu-scroll::-webkit-scrollbar-thumb { background: #333; }
   .ctx-menu-title {
     font-family: 'IBM Plex Mono', monospace;
     font-size: 9px;
@@ -358,6 +388,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     padding: 6px 12px 4px;
     border-bottom: 1px solid #2a2a2a;
     margin-bottom: 2px;
+    flex-shrink: 0;
   }
   .ctx-item {
     display: flex;
@@ -704,6 +735,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="stat" id="stat-total">загрузите архив →</div>
   <div class="sep"></div>
   <div class="stat" id="stat-marked">помечено: <span>0</span></div>
+  <div class="sep" id="stat-sep-sizes" style="display:none"></div>
+  <div class="stat" id="stat-sizes" style="display:none"></div>
+  <div class="sep" id="stat-sep-chapters" style="display:none"></div>
+  <div class="stat" id="stat-chapters" style="display:none"></div>
   <div class="spacer"></div>
   <button class="dl-btn" id="dl-btn" disabled>↓ скачать архив</button>
   <label class="upload-btn">
@@ -916,9 +951,13 @@ function sizeCategory(n){
   for(const g of SIZE_GROUPS) if(n>=g.min&&n<=g.max) return g.key;
   return n===0?'—':'XXL';
 }
+function isUnusedFolder(folder){
+  return folder==='unused' || folder.split('/').includes('unused');
+}
+
 function getOpaqueCount(imageData){
+  if(imageData.editedPixelData){ let n=0; const d=imageData.editedPixelData.data; for(let i=3;i<d.length;i+=4)if(d[i]>0)n++; imageData.opaqueCount=n; return n; }
   if(imageData.opaqueCount!==undefined) return imageData.opaqueCount;
-  if(imageData.pixelData){ let n=0; const d=imageData.pixelData.data; for(let i=3;i<d.length;i+=4)if(d[i]>0)n++; imageData.opaqueCount=n; return n; }
   return 0;
 }
 
@@ -1047,16 +1086,15 @@ function hideProgress(){ pbWrap.style.display='none'; pb.style.width='0%'; progr
 function buildFilters(){
   const allFolders=[...new Set(allImages.map(x=>x.folder))].sort();
   if(allImages._customFolders) allImages._customFolders.forEach(f=>{ if(!allFolders.includes(f)) allFolders.push(f); });
-  const hasUnused=allFolders.includes('unused');
-  const folders=hasUnused?['unused',...allFolders.filter(f=>f!=='unused')]:allFolders;
   filtersEl.innerHTML='';
-  // + button first (before label)
+
+  // + button
   const plusBtn=document.createElement('button');
   plusBtn.id='add-folder-btn'; plusBtn.className='filter-btn add-folder-btn';
   plusBtn.textContent='+'; plusBtn.title='Создать папку';
   plusBtn.onclick=e=>{ e.stopPropagation(); const name=prompt('Название новой папки:'); if(!name||!name.trim()) return; const folder=name.trim().toLowerCase().replace(/[^a-zа-яё0-9_-]/gi,'_'); allImages._customFolders=allImages._customFolders||new Set(); allImages._customFolders.add(folder); buildFilters(); renderGallery(); currentFilter=folder; document.querySelectorAll('.filter-btn').forEach(b=>b.classList.toggle('active',b.dataset&&b.dataset.folder===folder)); };
   filtersEl.appendChild(plusBtn);
-  filtersEl.appendChild(Object.assign(document.createElement('label'),{textContent:'ПАПКА:'}));
+
   const mkBtn=(label,val,isUnused)=>{
     const b=document.createElement('button');
     b.className='filter-btn'+(currentFilter===val?' active':'')+(isUnused?' unused-btn':'');
@@ -1064,8 +1102,36 @@ function buildFilters(){
     b.onclick=()=>{ currentFilter=val; document.querySelectorAll('.filter-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderGallery(); };
     return b;
   };
+
+  // "все" button first
   filtersEl.appendChild(mkBtn('все','all',false));
-  folders.forEach(f=>filtersEl.appendChild(mkBtn(f.split('/').pop()||f,f,f==='unused')));
+
+  // Group folders by archive (first path component)
+  const byArchive={};
+  allFolders.forEach(f=>{
+    const parts=f.split('/');
+    const archive=parts.length>1?parts[0]:'—';
+    if(!byArchive[archive]) byArchive[archive]=[];
+    byArchive[archive].push(f);
+  });
+
+  // Sort archives; for each archive: show label + folder buttons
+  Object.keys(byArchive).sort().forEach(archive=>{
+    // Archive label (non-clickable separator)
+    const lbl=document.createElement('span');
+    lbl.className='filter-archive-label';
+    lbl.textContent=archive;
+    filtersEl.appendChild(lbl);
+
+    // Sort: unused last within archive
+    const archiveFolders=byArchive[archive].sort((a,b)=>
+      isUnusedFolder(a)?1:isUnusedFolder(b)?-1:a.localeCompare(b));
+
+    archiveFolders.forEach(f=>{
+      const shortName=f.split('/').slice(1).join('/')||f;
+      filtersEl.appendChild(mkBtn(shortName||f, f, isUnusedFolder(f)));
+    });
+  });
 }
 
 // ── GALLERY ───────────────────────────────────────────
@@ -1077,15 +1143,38 @@ function renderGallery(){
     msg.innerHTML='<div class="big">✓</div><div>нет картинок</div>';
     galleryWrap.appendChild(msg); return;
   }
+  // "все": group globally by size, no unused; specific folder: group by folder
+  if(currentFilter==='all'){
+    const bySize={}; SIZE_GROUPS.forEach(g=>bySize[g.key]=[]);
+    visible.filter(img=>!isUnusedFolder(img.folder))
+      .forEach(img=>{ const cat=sizeCategory(getOpaqueCount(img.imageData)); if(!bySize[cat]) bySize[cat]=[]; bySize[cat].push(img); });
+    SIZE_GROUPS.forEach(g=>{
+      const grp=bySize[g.key]; if(!grp||!grp.length) return;
+      grp.sort((a,b)=>getOpaqueCount(a.imageData)-getOpaqueCount(b.imageData));
+      const ge=document.createElement('div'); ge.className='size-group';
+      const gl=document.createElement('div'); gl.className='size-group-label';
+      const maxStr=g.max===Infinity?'∞':g.max;
+      gl.innerHTML=`<span class="size-tag size-tag-${g.key}">${g.key}</span>${g.min}–${maxStr} · ${grp.length} шт`;
+      ge.appendChild(gl);
+      const grid=document.createElement('div'); grid.className='grid';
+      const rendered={done:false};
+      const renderGroup=()=>{ if(rendered.done) return; rendered.done=true; grp.forEach(img=>grid.appendChild(makeThumbnail(img))); };
+      if(grp.length<80){ renderGroup(); } else {
+        const obs=new IntersectionObserver(entries=>{ entries.forEach(e=>{ if(e.isIntersecting){renderGroup();obs.disconnect();}}),{rootMargin:'200px'}});
+        obs.observe(grid);
+      }
+      ge.appendChild(grid); galleryWrap.appendChild(ge);
+    });
+    return;
+  }
+
   const byFolder={};
   visible.forEach(img=>{ if(!byFolder[img.folder]) byFolder[img.folder]=[]; byFolder[img.folder].push(img); });
-  // Also include custom empty folders
   if(allImages._customFolders) allImages._customFolders.forEach(f=>{
-    if(!byFolder[f]&&(currentFilter==='all'||currentFilter===f)) byFolder[f]=[];
+    if(!byFolder[f]&&currentFilter===f) byFolder[f]=[];
   });
-
   const folderEntries=Object.entries(byFolder).sort(([a],[b])=>{
-    if(a==='unused') return -1; if(b==='unused') return 1; return a.localeCompare(b);
+    if(isUnusedFolder(a)) return 1; if(isUnusedFolder(b)) return -1; return a.localeCompare(b);
   });
 
   folderEntries.forEach(([folder,imgs])=>{
@@ -1187,6 +1276,33 @@ function moveToUnused(img) {
 }
 function updateStats(){
   statTotal.innerHTML='всего: <span>'+allImages.length+'</span>';
+  if(!allImages.length) return;
+  const counts={S:0,M:0,L:0,XL:0,XXL:0};
+  allImages.filter(img=>!isUnusedFolder(img.folder))
+    .forEach(img=>{ const cat=sizeCategory(getOpaqueCount(img.imageData)); if(counts[cat]!==undefined) counts[cat]++; });
+
+  // Find bottleneck — which size limits chapters first
+  const ratios={S:counts.S/3, M:counts.M/2, L:counts.L, XL:counts.XL, XXL:counts.XXL};
+  const chapters=Math.floor(Math.min(...Object.values(ratios)));
+  const minRatio=Math.min(...Object.values(ratios));
+  const bottleneck=Object.keys(ratios).find(k=>ratios[k]===minRatio);
+
+  const sizesEl=document.getElementById('stat-sizes'), sepSizes=document.getElementById('stat-sep-sizes');
+  if(sizesEl){ sizesEl.style.display=''; sepSizes.style.display='';
+    sizesEl.innerHTML='<span style="opacity:.5">уровни: </span>'+
+      Object.entries(counts).map(([k,v])=>{
+        const isBottleneck = k===bottleneck;
+        const badge=`<span class="stat-size-badge stat-size-${k}">${k}</span>`;
+        const num=isBottleneck
+          ? `<span style="color:#ff6b6b;font-weight:600">${v}</span>`
+          : `<span>${v}</span>`;
+        return badge+'&thinsp;'+num;
+      }).join('&ensp;');
+  }
+  const chapEl=document.getElementById('stat-chapters'), sepChap=document.getElementById('stat-sep-chapters');
+  if(chapEl){ chapEl.style.display=''; sepChap.style.display='';
+    chapEl.innerHTML='<span style="opacity:.5">глав: </span><span>'+chapters+'</span>'+(chapters>0?' <span style="opacity:.4">('+chapters*8+' ур.)</span>':'');
+  }
 }
 function plural(n,a,b,c){ const m=n%100; if(m>=11&&m<=14)return c; switch(n%10){case 1:return a;case 2:case 3:case 4:return b;default:return c;} }
 
@@ -1229,21 +1345,24 @@ dlBtn.addEventListener('click',async()=>{
 let ctxMenu=null;
 function showContextMenu(x,y,img){
   closeContextMenu();
-  const folderSet=new Set(allImages.map(i=>i.folder));
-  if(allImages._customFolders) allImages._customFolders.forEach(f=>folderSet.add(f));
-  const folders=[...folderSet].sort((a,b)=>a==='unused'?1:b==='unused'?-1:a.localeCompare(b));
+  const _fs=new Set(allImages.map(i=>i.folder));
+  if(allImages._customFolders) allImages._customFolders.forEach(f=>_fs.add(f));
+  const folders=[..._fs].sort((a,b)=>a==='unused'||a.endsWith('/unused')?1:b==='unused'||b.endsWith('/unused')?-1:a.localeCompare(b));
   const menu=document.createElement('div'); menu.className='ctx-menu'; ctxMenu=menu;
   const title=document.createElement('div'); title.className='ctx-menu-title'; title.textContent='ПЕРЕМЕСТИТЬ В'; menu.appendChild(title);
+  const scroll=document.createElement('div'); scroll.className='ctx-menu-scroll';
   folders.forEach(folder=>{
     if(folder===img.folder) return;
     const item=document.createElement('div'); item.className='ctx-item';
-    item.innerHTML=`<span class="ctx-icon">◫</span>${folder.split('/').pop()||folder}`;
+    item.innerHTML=`<span class="ctx-icon">◫</span>${folder}`;
     item.addEventListener('click',()=>{ moveToFolder(img.path,folder); closeContextMenu(); });
-    menu.appendChild(item);
+    scroll.appendChild(item);
   });
-  const sep=document.createElement('div'); sep.style.cssText='height:1px;background:#2a2a2a;margin:4px 0'; menu.appendChild(sep);
+  menu.appendChild(scroll);
+  const sep=document.createElement('div'); sep.style.cssText='height:1px;background:#2a2a2a;margin:4px 0;flex-shrink:0'; menu.appendChild(sep);
   // Move to unused
   const unusedItem=document.createElement('div'); unusedItem.className='ctx-item';
+  unusedItem.style.flexShrink='0';
   unusedItem.innerHTML=`<span class="ctx-icon">⊠</span>в unused`;
   unusedItem.addEventListener('click',()=>{ moveToUnused(img); closeContextMenu(); });
   menu.appendChild(unusedItem);
@@ -1281,15 +1400,16 @@ function openSideEditor(idx){
     const bs=atob(url.split(',')[1]); const ba=new Uint8Array(bs.length);
     for(let i=0;i<bs.length;i++) ba[i]=bs.charCodeAt(i);
     const syncBlob=new Blob([ba],{type:'image/png'});
+    let _oc2=0; const _d2=commitPx.data; for(let i=3;i<_d2.length;i+=4) if(_d2[i]>0) _oc2++;
+    commitImg.imageData.opaqueCount=_oc2; commitImg.imageData.editedPixelData=commitPx;
+    commitImg.imageData.w=commitPx.width; commitImg.imageData.h=commitPx.height;
     commitImg.imageData.mappedBlob=syncBlob; commitImg.blob=syncBlob;
-    // Save pixelData synchronously — this is what re-opening will use
-    commitImg.imageData.editedPixelData=commitPx;
-    commitImg.imageData.w=commitPx.width;
-    commitImg.imageData.h=commitPx.height;
-    // Update mappedImg async (for thumbnail/lightbox)
+    document.querySelector(`.thumb[data-path="${CSS.escape(commitImg.path)}"]`)?.querySelector('.size-badge') && (document.querySelector(`.thumb[data-path="${CSS.escape(commitImg.path)}"]`).querySelector('.size-badge').textContent=sizeCategory(_oc2));
+    // Also update mappedImg synchronously so re-opening shows edited version
     const mi=new Image();
     mi.onload=()=>{
       commitImg.imageData.mappedImg=mi; commitImg.imageData.img=mi;
+      // Update thumb
       const th2=document.querySelector(`.thumb[data-path="${CSS.escape(commitImg.path)}"]`);
       if(th2){ const tc2=th2.querySelector('canvas'); if(tc2){
         const sc=Math.min(SCALE,(THUMB_MAX*SCALE)/Math.max(commitPx.width,commitPx.height,1));
@@ -1313,14 +1433,8 @@ function openSideEditor(idx){
   sideCanvasEl.width=src.w*sideScale; sideCanvasEl.height=src.h*sideScale;
   sideCtx=sideCanvasEl.getContext('2d'); sideCtx.imageSmoothingEnabled=false;
 
-  // Use editedPixelData if available (preserves crop and edits synchronously)
-  // Fall back to mappedImg/img for first open
   if(src.editedPixelData){
-    sidePixelData=new ImageData(
-      new Uint8ClampedArray(src.editedPixelData.data),
-      src.editedPixelData.width,
-      src.editedPixelData.height
-    );
+    sidePixelData=new ImageData(new Uint8ClampedArray(src.editedPixelData.data),src.editedPixelData.width,src.editedPixelData.height);
   } else {
     const tmp=document.createElement('canvas'); tmp.width=src.w; tmp.height=src.h;
     const tc=tmp.getContext('2d'); tc.drawImage(src.mappedImg||src.img,0,0);
@@ -1418,15 +1532,19 @@ function sideCommitSync(){
   const newBlob=new Blob([ba],{type:'image/png'});
 
   let oc=0; const d=commitPx.data; for(let i=3;i<d.length;i+=4) if(d[i]>0) oc++;
+  commitImg.imageData.opaqueCount=oc;
+  commitImg.imageData.editedPixelData=commitPx;
+  commitImg.imageData.w=commitPx.width; commitImg.imageData.h=commitPx.height;
+  commitImg.imageData.mappedBlob=newBlob; commitImg.blob=newBlob;
+  document.querySelector(`.thumb[data-path="${CSS.escape(commitImg.path)}"]`)?.querySelector('.size-badge') && (document.querySelector(`.thumb[data-path="${CSS.escape(commitImg.path)}"]`).querySelector('.size-badge').textContent=sizeCategory(oc));
+  updateStats();
 
   const mi=new Image();
   mi.onload=()=>{
-    // Use captured commitImg — not global sideImg which already points to next image
     commitImg.blob=newBlob;
     commitImg.imageData={img:mi,mappedImg:mi,mappedBlob:newBlob,
       w:commitPx.width,h:commitPx.height,
-      pixelData:commitPx,mapping:commitImg.imageData.mapping,opaqueCount:oc,
-      editedPixelData:commitPx};
+      pixelData:commitPx,mapping:commitImg.imageData.mapping,opaqueCount:oc,editedPixelData:commitPx};
     const th=document.querySelector(`.thumb[data-path="${CSS.escape(commitImg.path)}"]`);
     if(th){ const tc=th.querySelector('canvas'); if(tc){
       const sc=Math.min(SCALE,(THUMB_MAX*SCALE)/Math.max(commitPx.width,commitPx.height,1));

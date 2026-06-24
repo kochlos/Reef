@@ -1281,9 +1281,12 @@ function updateStats(){
   allImages.filter(img=>!isUnusedFolder(img.folder))
     .forEach(img=>{ const cat=sizeCategory(getOpaqueCount(img.imageData)); if(counts[cat]!==undefined) counts[cat]++; });
 
-  // Find bottleneck — which size limits chapters first
-  const ratios={S:counts.S/3, M:counts.M/2, L:counts.L, XL:counts.XL, XXL:counts.XXL};
-  const chapters=Math.floor(Math.min(...Object.values(ratios)));
+  const chapters=Math.min(
+    Math.floor(counts.S/2),
+    Math.floor(counts.M/2),
+    Math.floor((counts.L+counts.XL+counts.XXL)/3)
+  );
+  const ratios={S:counts.S/2, M:counts.M/2, 'L+XL+XXL':(counts.L+counts.XL+counts.XXL)/3};
   const minRatio=Math.min(...Object.values(ratios));
   const bottleneck=Object.keys(ratios).find(k=>ratios[k]===minRatio);
 
@@ -1291,7 +1294,7 @@ function updateStats(){
   if(sizesEl){ sizesEl.style.display=''; sepSizes.style.display='';
     sizesEl.innerHTML='<span style="opacity:.5">уровни: </span>'+
       Object.entries(counts).map(([k,v])=>{
-        const isBottleneck = k===bottleneck;
+        const isBottleneck = k===bottleneck || (bottleneck==='L+XL+XXL' && ['L','XL','XXL'].includes(k));
         const badge=`<span class="stat-size-badge stat-size-${k}">${k}</span>`;
         const num=isBottleneck
           ? `<span style="color:#ff6b6b;font-weight:600">${v}</span>`
